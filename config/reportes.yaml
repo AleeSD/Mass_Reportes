@@ -1,0 +1,145 @@
+# Definición extensible de tipos de reporte.
+# Agregar combustible/viajes no requiere reescribir el motor: solo esta config
+# (y, si hace falta, ajustar hoja_origen / columnas con un export real).
+
+rutas:
+  raiz_salida: "consolidados_onway/_procesados"
+  # Fallbacks de lectura: consolidados antiguos generados antes del redireccionamiento
+  # siguen apareciendo en el selector de días y se pueden descargar.
+  raiz_salida_fallback:
+    - "consolidados/_procesados"
+    - "alertas_onway/_procesados"
+    - "reportes_onway/_procesados"
+
+scheduler:
+  habilitado: true
+  # Cada 10 minutos, procesa el día de hoy si hay archivos nuevos
+  cron: "*/10 * * * *"
+  timezone: "America/Lima"
+
+reportes:
+  alertas:
+    habilitado: true
+    etiqueta: "Alertas"
+    # Raíz principal (renombrada). Con el sufijo _entrada_fecha_:
+    #   <carpeta_raiz>/<fecha>/<carpeta_entrada>/*.xlsx  (recomendada)
+    #   <carpeta_raiz>/<mes>/<fecha-dmy>/<carpeta_entrada>/*.xlsx  (actual)
+    # También se prueba sin /<carpeta_entrada> (compatibilidad estructura actual).
+    carpeta_raiz: "alertas_onway"
+    carpeta_raiz_fallback:
+      - "reportes_onway"
+    carpeta_entrada: "alertas"
+    hoja_origen: "Report Alerts"
+    columna_placa: "Placa/Patente"
+    columna_alerta: "Alerta"
+    columna_severidad: "Severidad de la alerta"
+    columnas_obligatorias:
+      - "Fecha"
+      - "Hora"
+      - "Alerta"
+      - "Placa/Patente"
+    columnas_plantilla:
+      - "Secuencia"
+      - "Grupo"
+      - "Alias"
+      - "Placa/Patente"
+      - "IMEI"
+      - "Tipo de carrocería"
+      - "Empresa"
+      - "Conductor"
+      - "Fecha"
+      - "Hora"
+      - "Latitud"
+      - "Longitud"
+      - "Dirección"
+      - "Alerta"
+      - "Odómetro (Km)"
+      - "Zona"
+      - "Velocidad (Km/h)"
+      - "Horómetro (Hrs)"
+      - "% Batería"
+      - "Fecha GPS"
+      - "Hora GPS"
+      - "Estado GPS"
+      - "Atención Alerta"
+      - "Fecha Registro At."
+      - "Hora Registro At."
+    podar_columnas_vacias: true
+    nombre_salida: "REPORTE_ALERTAS_{fecha}.xlsx"
+
+  combustible:
+    habilitado: false
+    etiqueta: "Combustible"
+    carpeta_raiz: "combustible_onway"
+    carpeta_entrada: "combustible"
+    hoja_origen: "Fuel Report"
+    columna_placa: "Placa/Patente"
+    columnas_obligatorias:
+      - "Fecha"
+      - "Placa/Patente"
+    columnas_plantilla: []
+    podar_columnas_vacias: true
+    nombre_salida: "REPORTE_COMBUSTIBLE_{fecha}.xlsx"
+
+  viajes:
+    habilitado: false
+    etiqueta: "Viajes"
+    carpeta_raiz: "viajes_onway"
+    carpeta_entrada: "viajes"
+    hoja_origen: "Trips Report"
+    columna_placa: "Placa/Patente"
+    columnas_obligatorias:
+      - "Fecha"
+      - "Placa/Patente"
+    columnas_plantilla: []
+    podar_columnas_vacias: true
+    nombre_salida: "REPORTE_VIAJES_{fecha}.xlsx"
+
+  historial:
+    habilitado: true
+    etiqueta: "Historial"
+    carpeta_raiz: "historial_onway"
+    carpeta_entrada: "historial"
+    hoja_origen: "Report History"
+    columna_placa: "Placa/Patente"
+    # Nota: en historial "Alerta" NO es obligatoria (la mayoría son puntos GPS sin evento).
+    columnas_obligatorias:
+      - "Fecha"
+      - "Hora"
+      - "Placa/Patente"
+    columnas_plantilla:
+      - "Secuencia"
+      - "Grupo"
+      - "Alias"
+      - "Placa/Patente"
+      - "Tipo de carrocería"
+      - "Empresa"
+      - "Conductor"
+      - "Fecha"
+      - "Hora"
+      - "Latitud"
+      - "Longitud"
+      - "Dirección"
+      - "Alerta"
+      - "Odómetro (Km)"
+      - "Zona/Marca"
+      - "Velocidad (Km/h)"
+      - "Horómetro (Hrs)"
+      - "Notas"
+    podar_columnas_vacias: true
+    nombre_salida: "REPORTE_HISTORIAL_{fecha}.xlsx"
+
+# Reportes compuestos: combinan la salida ya normalizada de 2+ reportes base.
+reportes_compuestos:
+  consolidado_diario:
+    key_publico: "consolidado"
+    etiqueta: "Consolidado"
+    habilitado: true
+    tipos_incluidos:
+      - "alertas"
+      - "historial"
+    columna_origen: "Origen del registro"
+    # "fecha_hora" (mezcla cronológica) | "por_origen" (bloques separados)
+    orden_filas: "fecha_hora"
+    podar_columnas_vacias: true
+    nombre_salida: "REPORTE_CONSOLIDADO_{fecha}.xlsx"

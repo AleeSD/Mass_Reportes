@@ -1,0 +1,26 @@
+{
+  "name": "reporte-alertas-onway",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sistema de automatización de reportes de flota Onway",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -n api,web -c cyan,magenta \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:api": "node --watch backend/src/index.js",
+    "dev:web": "npm --prefix frontend run dev",
+    "start": "node backend/src/index.js",
+    "process": "node backend/src/cli.js",
+    "process:ejemplo": "node backend/src/cli.js --fecha 2026-09-17 --tipo alertas",
+    "postinstall": "npm --prefix frontend install"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "exceljs": "^4.4.0",
+    "express": "^5.1.0",
+    "js-yaml": "^4.1.0",
+    "node-cron": "^4.2.1"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
