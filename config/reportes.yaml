@@ -13,9 +13,16 @@ rutas:
 
 scheduler:
   habilitado: true
-  # Cada 10 minutos, procesa el día de hoy si hay archivos nuevos
+  # Cada 10 minutos revisa los días configurados y procesa si hay archivos nuevos.
   cron: "*/10 * * * *"
   timezone: "America/Lima"
+  # D6: a las ~8 am se suben los reportes del día anterior. Se revisan "ayer" y "hoy".
+  dias_a_revisar: ["ayer", "hoy"]
+  # No procesar un día si algún .xlsx de entrada cambió hace menos de N segundos
+  # (evita procesar una carga a medias).
+  estabilidad_segundos: 120
+  # Reprocesar solo si cambió la cantidad / tamaño / fecha de los archivos del día.
+  solo_si_cambio: true
 
 reportes:
   alertas:
@@ -107,11 +114,14 @@ reportes:
       - "Fecha"
       - "Hora"
       - "Placa/Patente"
+    # Export real de Onway (21 columnas). El mapeo es por nombre, el orden no afecta.
     columnas_plantilla:
       - "Secuencia"
       - "Grupo"
       - "Alias"
       - "Placa/Patente"
+      - "Etiquetas"
+      - "IMEI"
       - "Tipo de carrocería"
       - "Empresa"
       - "Conductor"
@@ -125,6 +135,7 @@ reportes:
       - "Zona/Marca"
       - "Velocidad (Km/h)"
       - "Horómetro (Hrs)"
+      - "% Batería"
       - "Notas"
     podar_columnas_vacias: true
     nombre_salida: "REPORTE_HISTORIAL_{fecha}.xlsx"
@@ -143,3 +154,26 @@ reportes_compuestos:
     orden_filas: "fecha_hora"
     podar_columnas_vacias: true
     nombre_salida: "REPORTE_CONSOLIDADO_{fecha}.xlsx"
+
+# Analítica de flota (v1.4): hojas RESUMEN_FLOTA, VUELTAS y VISITAS en el
+# consolidado + datos para la vista "Operación de flota" del dashboard.
+# Con habilitado: false el consolidado es idéntico al v1.3.
+analitica_flota:
+  habilitado: true
+  aplica_a: [consolidado]            # D2: solo el consolidado
+  fuente_eventos: "alertas"          # nunca el historial mezclado (H8)
+  dedupe_segundos: 120               # mismo tipo y zona repetido en <= 120 s -> duplicado
+  fusion_rebote_minutos: 10          # Llegó a la misma zona <= 10 min tras Salió -> misma visita
+  paso_por_zona_segundos: 180        # H6: estancia en tienda < 3 min = paso por zona
+  max_tiendas_por_vuelta_en_hoja: 7
+  max_vueltas_en_resumen: 4
+  resaltar_estancia_bsf_min: 240     # H7; recalibrar con datos reales
+  inicio_jornada_alertas: ["Vehículo encendido"]
+  inicio_jornada_respaldo: ["Se movio"]     # marcado "estimado"
+  ignorar_para_inicio: ["Encendido o Entró en cobertura", "Inicio de ralentí",
+                        "Fin de ralentí", "Fuente principal conectada",
+                        "Fuente principal desconectada", "Batería baja"]
+  # Rango horario del Gantt / ocupación BSF en el dashboard
+  gantt_hora_inicio: 4
+  gantt_hora_fin: 20
+  ocupacion_bsf_minutos: 15

@@ -24,5 +24,6 @@ if (fs.existsSync(frontendDist)) {
 
 app.listen(PORT, () => {
   console.log(`API lista en http://localhost:${PORT}`);
-  startScheduler();
+  // ONWAY_SCHEDULER=off desactiva el scheduler (útil en desarrollo / pruebas).
+  if (process.env.ONWAY_SCHEDULER !== "off") startScheduler();
 });

@@ -1,0 +1,30 @@
+# Lista oficial de la flota (22 placas). Base de la hoja RESUMEN_FLOTA:
+# las placas sin reporte del día salen como "Sin reporte del día".
+# - placa: formato con guion (AAA-999). La clave interna ignora el guion.
+# - alias: otras formas en que llega la placa (ej. "AJQ739").
+# - empresa: dueña del vehículo (Onway la envía vacía).
+# - tipo: OS | MASS. Solo se usa para filtrar/agrupar; no cambia las reglas.
+fecha_actualizacion: 2026-09-28
+placas:
+  - { placa: "AAR-880", alias: ["AAR880"], empresa: "MASS", tipo: "MASS" }
+  - { placa: "AJQ-739", alias: ["AJQ739"], empresa: "JAIME CAMPUSANO / MONGROUP E.I.R.L.", tipo: "MASS" }
+  - { placa: "AKO-712", alias: ["AKO712"], empresa: "MASS", tipo: "MASS" }
+  - { placa: "ARY-825", alias: ["ARY825"], empresa: "AP. TRANSPORTES GENERALES E.I.R.L.", tipo: "MASS" }
+  - { placa: "B1Y-801", alias: ["B1Y801"], empresa: "O.S. LOGISTICS PERU S.A.C.", tipo: "OS" }
+  - { placa: "BXQ-847", alias: ["BXQ847"], empresa: "MASS", tipo: "MASS" }
+  - { placa: "BXT-918", alias: ["BXT918"], empresa: "MASS", tipo: "MASS" }
+  - { placa: "C6E-921", alias: ["C6E921"], empresa: "MASS", tipo: "MASS" }
+  - { placa: "CJS-721", alias: ["CJS721"], empresa: "MASS", tipo: "MASS" }
+  - { placa: "CKL-718", alias: ["CKL718"], empresa: "MASS", tipo: "MASS" }
+  - { placa: "CLW-864", alias: ["CLW864"], empresa: "MASS", tipo: "MASS" }
+  - { placa: "CMP-924", alias: ["CMP924"], empresa: "MASS", tipo: "MASS" }
+  - { placa: "CMV-853", alias: ["CMV853"], empresa: "O.S. LOGISTICS PERU S.A.C.", tipo: "OS" }
+  - { placa: "CPF-781", alias: ["CPF781"], empresa: "O.S. LOGISTICS PERU S.A.C.", tipo: "OS" }
+  - { placa: "CPH-709", alias: ["CPH709"], empresa: "O.S. LOGISTICS PERU S.A.C.", tipo: "OS" }
+  - { placa: "F1W-796", alias: ["F1W796"], empresa: "O.S. LOGISTICS PERU S.A.C.", tipo: "OS" }
+  - { placa: "F2F-768", alias: ["F2F768"], empresa: "MASS", tipo: "MASS" }
+  - { placa: "F3I-769", alias: ["F3I769"], empresa: "MASS", tipo: "MASS" }
+  - { placa: "F6V-792", alias: ["F6V792"], empresa: "O.S. LOGISTICS PERU S.A.C.", tipo: "OS" }
+  - { placa: "F6V-794", alias: ["F6V794"], empresa: "MASS", tipo: "MASS" }
+  - { placa: "F8P-915", alias: ["F8P915"], empresa: "MASS", tipo: "MASS" }
+  - { placa: "F8R-810", alias: ["F8R810"], empresa: "MASS", tipo: "MASS" }

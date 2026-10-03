@@ -118,12 +118,20 @@ function pathBasenameSafe(p) {
   return String(p || "").replace(/\\/g, "/").split("/").pop() || "SIN-ARCHIVO";
 }
 
-export async function writeConsolidatedWorkbook(outputPath, sheets, columns) {
+/**
+ * @param {object} [opts]
+ * @param {(workbook: ExcelJS.Workbook) => string[]} [opts.beforeSheets] agrega hojas
+ *   antes de las hojas por placa (ej. analítica de flota) y devuelve sus nombres.
+ */
+export async function writeConsolidatedWorkbook(outputPath, sheets, columns, opts = {}) {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "Sistema Reportes Flota Onway";
   workbook.created = new Date();
 
   const usedNames = new Set();
+  if (typeof opts.beforeSheets === "function") {
+    for (const name of opts.beforeSheets(workbook) || []) usedNames.add(String(name).toLowerCase());
+  }
   for (const sheet of sheets) {
     let name = excelSheetName(sheet.plate);
     let i = 2;

@@ -1,0 +1,23 @@
+# Zonas de Onway usadas por la analítica de flota (v1.4).
+# En los exports de Onway la columna "Alerta" trae solo "Llegó a la zona" /
+# "Salió de zona"; el lugar se identifica por la columna "Zona".
+# La comparación normaliza el texto (NFKC, espacio no separable -> espacio,
+# espacios múltiples, mayúsculas).
+
+# Textos de alerta que cuentan como ingreso / salida. Admiten comodín "*"
+# por si Onway cambia el texto (ej. "INGRESO BSF", "SALIDA TDA MASS").
+alertas_ingreso: ["Llegó a la zona", "INGRESO*"]
+alertas_salida: ["Salió de zona", "SALIDA*"]
+
+zonas:
+  bsf:
+    nombre: "MASS BSF 1"
+    etiqueta: "BSF"
+  base_os:
+    nombre: "BASE-OSLOGISTICS"
+    etiqueta: "BASE OS"
+  tienda:
+    # Nombre de zona = CÓDIGO-LOCAL. Se une SIEMPRE por el código numérico.
+    patron: "^(\\d+)[-\\s]"
+    grupo_codigo: 1
+    catalogo: "config/tiendas_mass.csv"

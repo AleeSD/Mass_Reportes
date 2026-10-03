@@ -215,3 +215,36 @@ export function discoverAvailableDates(config, reportType) {
 
   return [...dates].sort().reverse();
 }
+
+/**
+ * Huella de los archivos de entrada de un día: cantidad, tamaño total y última
+ * modificación. Para un compuesto combina las huellas de sus tipos base.
+ * Sirve para "reprocesar solo si cambió algo" y para el chequeo de estabilidad.
+ */
+export function inputFingerprint(config, isoDate, reportType, getType) {
+  const types =
+    reportType.es_compuesto && Array.isArray(reportType.tipos_incluidos) && getType
+      ? reportType.tipos_incluidos.map((key) => getType(config, key))
+      : [reportType];
+  let archivos = 0;
+  let bytes = 0;
+  let ultima = 0;
+  for (const type of types) {
+    for (const file of listInputFiles(config, isoDate, type)) {
+      try {
+        const st = fs.statSync(file);
+        archivos += 1;
+        bytes += st.size;
+        ultima = Math.max(ultima, st.mtimeMs);
+      } catch {
+        // archivo borrado entre el listado y el stat
+      }
+    }
+  }
+  return { archivos, bytes, ultima_modificacion: ultima ? new Date(ultima).toISOString() : null };
+}
+
+export function sameFingerprint(a, b) {
+  if (!a || !b) return false;
+  return a.archivos === b.archivos && a.bytes === b.bytes && a.ultima_modificacion === b.ultima_modificacion;
+}

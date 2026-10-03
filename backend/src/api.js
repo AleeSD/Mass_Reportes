@@ -1,11 +1,21 @@
 import fs from "node:fs";
 import path from "node:path";
 import express from "express";
-import { getReportType, loadConfig, enabledReportTypes } from "./config.js";
-import { getLatestRun, listRuns, saveRun } from "./db.js";
-import { processCompositeDay, processDay, listOriginalFiles } from "./engine/processDay.js";
+import {
+  getReportType,
+  loadConfig,
+  enabledReportTypes,
+  loadFleetConfig,
+  loadStoresCatalog,
+  loadZonesConfig,
+} from "./config.js";
+import { getFleetDay, getLatestRun, listFleetDates, listRuns, saveRun } from "./db.js";
+import { listOriginalFiles } from "./engine/processDay.js";
 import { discoverAvailableDates, resolveOutputPath, findExistingOutputPath } from "./engine/paths.js";
-import { parseToIso, todayIso } from "./engine/helpers.js";
+import { addDaysIso, parseToIso, todayIso } from "./engine/helpers.js";
+import { bsfOccupancy, storeRanking } from "./engine/timeline/index.js";
+import { LockedError, runningLocks } from "./locks.js";
+import { runReport } from "./runner.js";
 
 function sendDownload(res, filePath, downloadName) {
   if (!fs.existsSync(filePath)) {
@@ -13,6 +23,23 @@ function sendDownload(res, filePath, downloadName) {
     return;
   }
   res.download(filePath, downloadName);
+}
+
+function sendProcessError(res, error) {
+  if (error instanceof LockedError) {
+    res.status(409).json({ error: error.message });
+    return;
+  }
+  res.status(500).json({ error: error.message });
+}
+
+function requireIso(req, res) {
+  const iso = parseToIso(req.params.fecha);
+  if (!iso) {
+    res.status(400).json({ error: "Fecha inválida. Use YYYY-MM-DD o DD-MM-YYYY" });
+    return null;
+  }
+  return iso;
 }
 
 function uniqueSortedStrings(list) {
@@ -42,6 +69,9 @@ export function createApiRouter() {
       cron: sched.cron || "*/10 * * * *",
       timezone: sched.timezone || "America/Lima",
       hoy,
+      ayer: addDaysIso(hoy, -1),
+      en_proceso: runningLocks(),
+      dias_a_revisar: sched.dias_a_revisar || ["hoy"],
       tipos_activos: tiposActivos.map((t) => ({
         key: t.key,
         key_publico: t.key_publico || t.key,
@@ -139,13 +169,12 @@ export function createApiRouter() {
         res.status(400).json({ error: "Este tipo de reporte aún no está habilitado" });
         return;
       }
-      const result = reportType?.es_compuesto
-        ? await processCompositeDay({ config, compositeReport: reportType, isoDate: iso })
-        : await processDay({ config, reportType, isoDate: iso });
+      const result = await runReport({ config, reportType, isoDate: iso });
       saveRun(result);
-      res.json(result);
+      const { analitica_flota, ...rest } = result;
+      res.json({ ...rest, analitica_flota_generada: !!analitica_flota });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      sendProcessError(res, error);
     }
   });
 
@@ -159,13 +188,12 @@ export function createApiRouter() {
         res.status(400).json({ error: "Este tipo de reporte aún no está habilitado" });
         return;
       }
-      const result = reportType?.es_compuesto
-        ? await processCompositeDay({ config, compositeReport: reportType, isoDate: iso })
-        : await processDay({ config, reportType, isoDate: iso });
+      const result = await runReport({ config, reportType, isoDate: iso });
       saveRun(result);
-      res.json(result);
+      const { analitica_flota, ...rest } = result;
+      res.json({ ...rest, analitica_flota_generada: !!analitica_flota });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      sendProcessError(res, error);
     }
   });
 
@@ -208,6 +236,146 @@ export function createApiRouter() {
       return;
     }
     sendDownload(res, match.ruta, match.archivo);
+  });
+
+  // ── Analítica de flota (v1.4) ──
+
+  router.get("/fleet/dates", (_req, res) => {
+    const config = loadConfig();
+    const hoy = todayIso(config.scheduler?.timezone || "America/Lima");
+    res.json({ fechas: listFleetDates(), hoy, ayer: addDaysIso(hoy, -1) });
+  });
+
+  router.get("/fleet/config", (_req, res) => {
+    const config = loadConfig();
+    const zonas = loadZonesConfig();
+    const catalogo = loadStoresCatalog(zonas.zonas?.tienda?.catalogo);
+    const flota = loadFleetConfig();
+    res.json({
+      parametros: config.analitica_flota || {},
+      flota,
+      zonas,
+      catalogo: {
+        total: catalogo.length,
+        cds: [...new Set(catalogo.map((t) => t.cd))].sort(),
+        distritos: [...new Set(catalogo.map((t) => t.distrito))].sort(),
+        tiendas: catalogo,
+      },
+    });
+  });
+
+  router.get("/fleet/timeline/:fecha", (req, res) => {
+    const iso = requireIso(req, res);
+    if (!iso) return;
+    const day = getFleetDay(iso);
+    if (!day) {
+      res.json({ generado: false, fecha: iso });
+      return;
+    }
+    const config = loadConfig();
+    const p = config.analitica_flota || {};
+    const calidad = day.placas.reduce(
+      (acc, placa) => {
+        const c = placa.calidad || {};
+        if (c.sin_reporte) acc.placas_sin_reporte.push(placa.placa);
+        acc.estancias_abiertas += c.estancias_abiertas || 0;
+        acc.pasos += c.pasos || 0;
+        acc.duplicados += c.duplicados || 0;
+        acc.rebotes += c.rebotes || 0;
+        acc.llegadas_repetidas += c.llegadas_repetidas || 0;
+        acc.salidas_sin_llegada += c.salidas_sin_llegada || 0;
+        acc.gps_antiguo += c.gps_antiguo || 0;
+        if (c.inicio_estimado) acc.inicios_estimados.push(placa.placa);
+        for (const z of c.zonas_desconocidas || []) {
+          if (!acc.zonas_desconocidas.includes(z)) acc.zonas_desconocidas.push(z);
+        }
+        return acc;
+      },
+      {
+        placas_sin_reporte: [],
+        inicios_estimados: [],
+        estancias_abiertas: 0,
+        pasos: 0,
+        duplicados: 0,
+        rebotes: 0,
+        llegadas_repetidas: 0,
+        salidas_sin_llegada: 0,
+        gps_antiguo: 0,
+        zonas_desconocidas: [],
+      },
+    );
+    res.json({
+      generado: true,
+      ...day,
+      calidad,
+      gantt: { desde_hora: p.gantt_hora_inicio ?? 4, hasta_hora: p.gantt_hora_fin ?? 20 },
+    });
+  });
+
+  router.get("/fleet/timeline/:fecha/:placa", (req, res) => {
+    const iso = requireIso(req, res);
+    if (!iso) return;
+    const day = getFleetDay(iso);
+    if (!day) {
+      res.json({ generado: false, fecha: iso });
+      return;
+    }
+    const wanted = String(req.params.placa).toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const norm = (p) => String(p).toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const placa = day.placas.find((p) => norm(p.placa) === wanted);
+    if (!placa) {
+      res.status(404).json({ error: "Placa sin datos para esta fecha" });
+      return;
+    }
+    const alertRun = getLatestRun("alertas", iso);
+    const original = (alertRun?.resumen?.placas || []).find((p) => norm(p.placa) === wanted);
+    res.json({
+      generado: true,
+      fecha: iso,
+      placa,
+      trips: day.trips.filter((t) => norm(t.placa) === wanted),
+      visits: day.visits.filter((v) => norm(v.placa) === wanted),
+      archivo_original: original?.archivo
+        ? {
+            archivo: original.archivo,
+            url: `/api/download/original/alertas/${iso}/${encodeURIComponent(original.archivo)}`,
+          }
+        : null,
+    });
+  });
+
+  router.get("/fleet/stores/:fecha", (req, res) => {
+    const iso = requireIso(req, res);
+    if (!iso) return;
+    const day = getFleetDay(iso);
+    if (!day) {
+      res.json({ generado: false, fecha: iso });
+      return;
+    }
+    res.json({ generado: true, fecha: iso, tiendas: storeRanking(day.visits, iso) });
+  });
+
+  router.get("/fleet/bsf-occupancy/:fecha", (req, res) => {
+    const iso = requireIso(req, res);
+    if (!iso) return;
+    const day = getFleetDay(iso);
+    if (!day) {
+      res.json({ generado: false, fecha: iso });
+      return;
+    }
+    const p = loadConfig().analitica_flota || {};
+    const franjas = bsfOccupancy(day.visits, day.placas, iso, {
+      desdeHora: p.gantt_hora_inicio ?? 4,
+      hastaHora: p.gantt_hora_fin ?? 20,
+      minutos: p.ocupacion_bsf_minutos ?? 15,
+    });
+    res.json({
+      generado: true,
+      fecha: iso,
+      minutos: p.ocupacion_bsf_minutos ?? 15,
+      maximo: franjas.reduce((m, f) => Math.max(m, f.vehiculos), 0),
+      franjas,
+    });
   });
 
   return router;

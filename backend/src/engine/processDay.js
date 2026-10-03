@@ -9,7 +9,9 @@ import {
   writeConsolidatedWorkbook,
 } from "./consolidate.js";
 import { ensureOutputDir, listInputFiles, resolveOutputPath, findExistingOutputPath } from "./paths.js";
-import { getReportType } from "../config.js";
+import { getReportType, loadFleetConfig, loadStoresCatalog, loadZonesConfig } from "../config.js";
+import { buildFleetTimeline, selectAlertRows } from "./timeline/index.js";
+import { addFleetSheets, FLEET_SHEET_NAMES } from "./timeline/fleetSheets.js";
 import { normalizeHeader, scanWorkbookForObjectObject } from "./helpers.js";
 
 function lookupValue(row, columnName) {
@@ -220,7 +222,13 @@ export function listOriginalFiles(config, isoDate, reportType) {
  * Asegura que cada tipo base tenga su salida, une las filas por placa, añade
  * la columna de origen, ordena por fecha/hora y escribe el workbook combinado.
  */
-export async function processCompositeDay({ config, compositeReport, isoDate, runBaseProcessor = processDay }) {
+export async function processCompositeDay({
+  config,
+  compositeReport,
+  isoDate,
+  runBaseProcessor = processDay,
+  fleetBuilder = buildFleetTimeline,
+}) {
   const startedAt = new Date().toISOString();
   const logs = [];
   const tipos_incluidos = Array.isArray(compositeReport.tipos_incluidos)
@@ -371,15 +379,75 @@ export async function processCompositeDay({ config, compositeReport, isoDate, ru
     }))
     .sort((a, b) => a.plate.localeCompare(b.plate));
 
+  // Analítica de flota (v1.4). Falla aislada: si algo falla, el consolidado se
+  // genera igual con las hojas por placa y el run queda "parcial".
+  const fleetParams = config.analitica_flota || {};
+  let fleet = null;
+  let fleetFailed = false;
+  if (fleetEnabled(fleetParams, compositeReport) && merged.size > 0) {
+    try {
+      const fuente = fleetParams.fuente_eventos || "alertas";
+      const zonesConfig = loadZonesConfig();
+      const alertTables = [...merged.entries()].map(([plate, rows]) => ({
+        plate,
+        rows: selectAlertRows(rows, { fuente }),
+      }));
+      fleet = fleetBuilder({
+        tables: alertTables,
+        params: fleetParams,
+        zonesConfig,
+        catalog: loadStoresCatalog(zonesConfig.zonas?.tienda?.catalogo),
+        flota: loadFleetConfig(),
+        fecha: isoDate,
+      });
+      const k = fleet.kpis;
+      logs.push({
+        nivel: k.placas_con_reporte_en_flota < k.placas_esperadas ? "warn" : "info",
+        mensaje: `Cobertura: ${k.placas_con_reporte_en_flota} de ${k.placas_esperadas} placas de la flota con reporte${k.placas_fuera_de_flota.length ? ` (+${k.placas_fuera_de_flota.length} fuera de flota: ${k.placas_fuera_de_flota.join(", ")})` : ""}`,
+      });
+      logs.push({
+        nivel: "info",
+        mensaje: `Analítica de flota: ${k.vueltas_total} vueltas (${k.vueltas_con_tiendas} con tiendas), ${k.tiendas_visitadas} visitas a tiendas, ${k.pasos_por_zona} pasos por zona`,
+      });
+      const unknown = [...new Set(fleet.placas.flatMap((p) => p.calidad?.zonas_desconocidas || []))];
+      if (unknown.length) {
+        logs.push({ nivel: "warn", mensaje: `Zonas no reconocidas (revise zonas.yaml / catálogo): ${unknown.join(", ")}` });
+      }
+    } catch (err) {
+      fleetFailed = true;
+      fleet = null;
+      logs.push({ nivel: "warn", mensaje: `Analítica de flota no generada: ${err.message}` });
+    }
+  }
+
   const outputPath = resolveOutputPath(config, isoDate, compositeReport);
   ensureOutputDir(outputPath);
-  await writeConsolidatedWorkbook(outputPath, sheets, outputCols);
+  await writeConsolidatedWorkbook(outputPath, sheets, outputCols, {
+    beforeSheets: fleet
+      ? (workbook) => {
+          try {
+            addFleetSheets(workbook, fleet, fleetParams);
+            return FLEET_SHEET_NAMES;
+          } catch (err) {
+            for (const name of FLEET_SHEET_NAMES) {
+              const ws = workbook.getWorksheet(name);
+              if (ws) workbook.removeWorksheet(ws.id);
+            }
+            fleetFailed = true;
+            fleet = null;
+            logs.push({ nivel: "warn", mensaje: `Hojas de flota no escritas: ${err.message}` });
+            return [];
+          }
+        }
+      : null,
+  });
 
   // Red de seguridad anti-[object Object]
   let estadoPre = "ok";
   if (anyBaseError) estadoPre = "error";
   else if (anyBaseParcial) estadoPre = "parcial";
   if (merged.size === 0 && estadoPre === "ok") estadoPre = "sin_archivos";
+  if (fleetFailed && estadoPre === "ok") estadoPre = "parcial";
 
   try {
     const wb = new ExcelJS.Workbook();
@@ -408,6 +476,18 @@ export async function processCompositeDay({ config, compositeReport, isoDate, ru
   const total_registros = [...merged.values()].reduce((s, r) => s + r.length, 0);
   resumen.total_registros = total_registros;
   if (!resumen.total_alertas) resumen.total_alertas = total_registros;
+  if (fleet) {
+    resumen.analitica_flota = {
+      generado: true,
+      placas_esperadas: fleet.kpis.placas_esperadas,
+      placas_con_reporte: fleet.kpis.placas_con_reporte_en_flota,
+      placas_fuera_de_flota: fleet.kpis.placas_fuera_de_flota,
+      vueltas: fleet.kpis.vueltas_total,
+      tiendas_visitadas: fleet.kpis.tiendas_visitadas,
+    };
+  } else if (fleetEnabled(fleetParams, compositeReport)) {
+    resumen.analitica_flota = { generado: false, error: fleetFailed };
+  }
 
   return {
     fecha: isoDate,
@@ -423,7 +503,14 @@ export async function processCompositeDay({ config, compositeReport, isoDate, ru
     startedAt,
     finishedAt: new Date().toISOString(),
     columnas_eliminadas,
+    analitica_flota: fleet,
   };
+}
+
+function fleetEnabled(params, compositeReport) {
+  if (!params || params.habilitado === false) return false;
+  const aplica = Array.isArray(params.aplica_a) ? params.aplica_a : ["consolidado"];
+  return aplica.includes(compositeReport.key_publico) || aplica.includes(compositeReport.key);
 }
 
 function emptyCompositeResult(compositeReport, isoDate, startedAt, opts = {}) {

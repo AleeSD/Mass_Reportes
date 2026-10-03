@@ -30,138 +30,12 @@ import {
   XCircle,
   AlertCircle,
   Eye,
+  Route,
 } from "lucide-react";
 import "./App.css";
-
-async function api(path, options) {
-  const res = await fetch(path, options);
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(body.error || "Error de API");
-  }
-  return res.json();
-}
-
-function cn(...args) {
-  return args.filter(Boolean).join(" ");
-}
-
-function estadoMeta(estado) {
-  if (estado === "OK" || estado === "ok")
-    return { cls: "bg-emerald-50 text-emerald-700 border-emerald-200", label: "Completado", dot: "bg-emerald-500" };
-  if (String(estado).toLowerCase().includes("error"))
-    return { cls: "bg-red-50 text-red-700 border-red-200", label: "Fallido", dot: "bg-red-500" };
-  if (estado === "parcial" || estado === "Pendiente")
-    return { cls: "bg-amber-50 text-amber-700 border-amber-200", label: "Parcial", dot: "bg-amber-500" };
-  if (estado === "sin_archivos")
-    return { cls: "bg-slate-50 text-slate-600 border-slate-200", label: "Sin archivos", dot: "bg-slate-400" };
-  return { cls: "bg-slate-50 text-slate-600 border-slate-200", label: estado || "Sin proceso", dot: "bg-slate-400" };
-}
-
-function StatusBadge({ estado, size = "md" }) {
-  const meta = estadoMeta(estado);
-  const Icon = estado === "OK" || estado === "ok" ? CheckCircle : estado === "error" ? XCircle : AlertCircle;
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1 rounded-full border font-medium",
-        meta.cls,
-        size === "sm" ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs",
-      )}
-    >
-      <Icon size={size === "sm" ? 8 : 9} />
-      {meta.label}
-    </span>
-  );
-}
-
-function KpiCard({ label, value, sub, icon: Icon, accent }) {
-  return (
-    <div
-      className={cn(
-        "bg-card rounded-xl border p-5 flex flex-col gap-3",
-        accent ? "border-amber-200 bg-amber-50/60 ring-1 ring-amber-200/60" : "border-border",
-      )}
-    >
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold text-muted-foreground tracking-wide uppercase">
-          {label}
-        </span>
-        <span
-          className={cn(
-            "p-1.5 rounded-lg",
-            accent ? "bg-amber-100 text-amber-600" : "bg-muted text-muted-foreground",
-          )}
-        >
-          <Icon size={13} />
-        </span>
-      </div>
-      <div>
-        <span
-          className={cn(
-            "text-2xl font-semibold tabular-nums",
-            accent ? "text-amber-700" : "text-foreground",
-          )}
-          style={{ fontFamily: "var(--font-mono)" }}
-        >
-          {value}
-        </span>
-        {sub && <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>}
-      </div>
-    </div>
-  );
-}
-
-function SectionCard({ title, sub, children, action }) {
-  return (
-    <div className="bg-card rounded-xl border border-border">
-      <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-foreground truncate">{title}</h3>
-          {sub && <p className="text-xs text-muted-foreground mt-0.5 truncate">{sub}</p>}
-        </div>
-        {action}
-      </div>
-      <div className="p-5">{children}</div>
-    </div>
-  );
-}
-
-function AlertTypeBars({ data, accentIdx = -1 }) {
-  if (!data || !data.length)
-    return <p className="text-xs text-muted-foreground">Sin datos.</p>;
-  const max = data[0]?.cantidad || data[0]?.count || 1;
-  return (
-    <div className="space-y-3">
-      {data.map((item, idx) => {
-        const label = item.tipo;
-        const count = item.cantidad ?? item.count ?? 0;
-        return (
-          <div key={label} className="flex items-center gap-3">
-            <span className="text-xs text-muted-foreground w-44 truncate shrink-0" title={label}>
-              {label}
-            </span>
-            <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-              <div
-                className={cn(
-                  "h-full rounded-full transition-all duration-500",
-                  idx === accentIdx ? "bg-amber-500" : "bg-primary",
-                )}
-                style={{ width: `${(count / max) * 100}%` }}
-              />
-            </div>
-            <span
-              className="text-xs font-medium text-foreground tabular-nums w-10 text-right shrink-0"
-              style={{ fontFamily: "var(--font-mono)" }}
-            >
-              {count}
-            </span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
+import { api, cn } from "./lib/api.js";
+import { AlertTypeBars, DateSelector, KpiCard, SectionCard, StatusBadge, estadoMeta } from "./components/ui.jsx";
+import FleetView from "./components/fleet/FleetView.jsx";
 
 // ─── Dashboard Overview View ───────────────────────────────────────────────
 
@@ -904,6 +778,7 @@ const NAV_ITEMS = [
   { id: "alertas", label: "Alertas", Icon: AlertTriangle },
   { id: "historial", label: "Historial", Icon: History },
   { id: "consolidado", label: "Consolidado", Icon: FileText },
+  { id: "flota", label: "Operación de flota", Icon: Route },
 ];
 
 export default function App() {
@@ -921,6 +796,11 @@ export default function App() {
   const [searchPlaca, setSearchPlaca] = useState("");
   const [showCols, setShowCols] = useState(false);
   const refreshTimer = useRef(null);
+  // Vista "Operación de flota": fecha propia, por defecto el día anterior (D6).
+  const [fleetFecha, setFleetFecha] = useState("");
+  const [fleetDates, setFleetDates] = useState({ fechas: [], hoy: "", ayer: "" });
+  const [refreshTick, setRefreshTick] = useState(0);
+  const isFleet = view === "flota";
 
   // Load initial metadata (types + scheduler status)
   useEffect(() => {
@@ -937,6 +817,19 @@ export default function App() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  // Fechas con análisis de flota; la vista arranca en "ayer".
+  function loadFleetDates() {
+    return api("/api/fleet/dates")
+      .then((d) => {
+        setFleetDates(d);
+        setFleetFecha((cur) => cur || d.ayer);
+      })
+      .catch((err) => setError(err.message));
+  }
+  useEffect(() => {
+    loadFleetDates();
   }, []);
 
   // Load available dates when tipo changes
@@ -977,19 +870,27 @@ export default function App() {
       return;
     }
     refreshTimer.current = setInterval(() => {
-      loadSummary();
+      if (view === "flota") setRefreshTick((t) => t + 1);
+      else loadSummary();
     }, 30000);
     return () => {
       if (refreshTimer.current) clearInterval(refreshTimer.current);
     };
-  }, [autoRefresh, fecha, tipo]);
+  }, [autoRefresh, fecha, tipo, view]);
 
   async function processNow() {
     setProcessing(true);
     setError("");
     try {
-      await api(`/api/process/${tipo}/${fecha}`, { method: "POST" });
-      await loadSummary();
+      if (isFleet) {
+        // La analítica de flota vive en el consolidado del día.
+        await api(`/api/process/consolidado/${fleetFecha}`, { method: "POST" });
+        await loadFleetDates();
+        setRefreshTick((t) => t + 1);
+      } else {
+        await api(`/api/process/${tipo}/${fecha}`, { method: "POST" });
+        await loadSummary();
+      }
       const sched = await api("/api/scheduler/status").catch(() => null);
       if (sched) setScheduler(sched);
     } catch (err) {
@@ -1002,7 +903,7 @@ export default function App() {
   // When switching views (from sidebar), if switched to a specific tipo view (not dashboard),
   // sync the tipo selector too.
   useEffect(() => {
-    if (view !== "dashboard" && view !== tipo) {
+    if (view !== "dashboard" && view !== "flota" && view !== tipo) {
       const exists = types.find((t) => t.key === view || t.key_publico === view);
       if (exists) setTipo(exists.key_publico || exists.key);
     }
@@ -1014,8 +915,12 @@ export default function App() {
       : types.find((t) => (t.key_publico || t.key) === (view === "dashboard" ? tipo : view)) ||
         types[0];
 
-  const viewTitle =
-    view === "dashboard"
+  const viewTitle = isFleet
+    ? {
+        title: "Operación de flota",
+        sub: "Tiempos reales por placa: BSF, tiendas y Base OS (desde el consolidado del día)",
+      }
+    : view === "dashboard"
       ? {
           title: "Dashboard",
           sub: "Resumen general de reportes del día",
@@ -1194,6 +1099,16 @@ export default function App() {
               Auto-refresh (30s)
             </label>
 
+            {isFleet ? (
+              <DateSelector
+                value={fleetFecha}
+                onChange={setFleetFecha}
+                fechas={fleetDates.fechas}
+                hoy={fleetDates.hoy}
+                ayer={fleetDates.ayer}
+              />
+            ) : (
+            <>
             <div className="flex items-center gap-1.5 bg-muted border border-border rounded-lg px-3 py-1.5">
               <Calendar size={12} className="text-muted-foreground" />
               <span
@@ -1224,6 +1139,8 @@ export default function App() {
                 ))}
               </select>
             )}
+            </>
+            )}
 
             <button
               onClick={processNow}
@@ -1236,10 +1153,10 @@ export default function App() {
               )}
             >
               <RefreshCw size={12} className={processing ? "animate-spin" : ""} />
-              {processing ? "Procesando…" : "Procesar ahora"}
+              {processing ? "Procesando…" : isFleet ? "Procesar consolidado" : "Procesar ahora"}
             </button>
 
-            {summary?.consolidado_existe && (
+            {!isFleet && summary?.consolidado_existe && (
               <a
                 href={`/api/download/consolidated/${tipo}/${fecha}`}
                 className="flex items-center gap-1.5 bg-emerald-600 text-white px-4 py-1.5 rounded-lg text-xs font-semibold hover:bg-emerald-700 active:scale-[0.98] transition-all shadow-sm"
@@ -1254,7 +1171,9 @@ export default function App() {
 
         {/* Scrollable content */}
         <main className="flex-1 overflow-y-auto">
-          {view === "dashboard" ? (
+          {isFleet ? (
+            <FleetView fecha={fleetFecha} refreshTick={refreshTick} onProcess={processNow} processing={processing} />
+          ) : view === "dashboard" ? (
             <DashboardOverview tipo={tipo} summary={summary} scheduler={scheduler} />
           ) : (
             <ReportView

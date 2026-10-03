@@ -1,7 +1,7 @@
 import { getReportType, loadConfig } from "./config.js";
 import { saveRun } from "./db.js";
-import { parseToIso, todayIso } from "./engine/helpers.js";
-import { processCompositeDay, processDay } from "./engine/processDay.js";
+import { addDaysIso, parseToIso, todayIso } from "./engine/helpers.js";
+import { runReport } from "./runner.js";
 
 const args = process.argv.slice(2);
 const tipo = argValue("--tipo") || "alertas";
@@ -14,12 +14,17 @@ function argValue(flag) {
 }
 
 const config = loadConfig();
-const iso = parseToIso(fechaArg) || todayIso(config.scheduler?.timezone || "America/Lima");
+const hoy = todayIso(config.scheduler?.timezone || "America/Lima");
+// --fecha acepta YYYY-MM-DD, DD-MM-YYYY, "hoy" o "ayer" (D6: el día anterior).
+const iso =
+  fechaArg === "ayer" ? addDaysIso(hoy, -1) : fechaArg === "hoy" || !fechaArg ? hoy : parseToIso(fechaArg);
+if (!iso) {
+  console.error(`Fecha inválida: ${fechaArg}. Use YYYY-MM-DD, DD-MM-YYYY, hoy o ayer`);
+  process.exit(1);
+}
 const reportType = getReportType(config, tipo);
 
-const result = reportType?.es_compuesto
-  ? await processCompositeDay({ config, compositeReport: reportType, isoDate: iso })
-  : await processDay({ config, reportType, isoDate: iso });
+const result = await runReport({ config, reportType, isoDate: iso });
 saveRun(result);
 console.log(JSON.stringify({
   fecha: result.fecha,
@@ -32,6 +37,7 @@ console.log(JSON.stringify({
   consolidado: result.consolidado,
   total_alertas: result.resumen?.total_alertas,
   total_registros: result.resumen?.total_registros,
+  analitica_flota: result.resumen?.analitica_flota,
 }, null, 2));
 
 if (result.estado === "error" || result.estado === "sin_archivos") {

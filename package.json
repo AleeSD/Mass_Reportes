@@ -1,6 +1,6 @@
 {
   "name": "reporte-alertas-onway",
-  "version": "1.0.0",
+  "version": "1.4.0",
   "private": true,
   "description": "Sistema de automatización de reportes de flota Onway",
   "type": "module",
@@ -11,7 +11,9 @@
     "start": "node backend/src/index.js",
     "process": "node backend/src/cli.js",
     "process:ejemplo": "node backend/src/cli.js --fecha 2026-09-17 --tipo alertas",
-    "postinstall": "npm --prefix frontend install"
+    "postinstall": "npm --prefix frontend install",
+    "test": "node --test --test-concurrency=1 \"backend/test/**/*.test.js\"",
+    "import:geocercas": "node scripts/import-geocercas.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

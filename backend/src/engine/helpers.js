@@ -25,13 +25,27 @@ export function todayIso(timeZone = "America/Lima") {
   }).format(new Date());
 }
 
+function isRealIsoDate(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
+}
+
+/** YYYY-MM-DD o DD-MM-YYYY -> YYYY-MM-DD; null si el formato o la fecha no son válidos. */
 export function parseToIso(value) {
   if (!value) return null;
   const trimmed = String(value).trim();
-  if (ISO_DATE.test(trimmed)) return trimmed;
+  let iso = null;
+  if (ISO_DATE.test(trimmed)) iso = trimmed;
   const m = trimmed.match(DMY_DATE);
-  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
-  return null;
+  if (m) iso = `${m[3]}-${m[2]}-${m[1]}`;
+  return iso && isRealIsoDate(iso) ? iso : null;
+}
+
+/** Suma días a una fecha ISO (YYYY-MM-DD). */
+export function addDaysIso(iso, days) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 }
 
 export function isoToDmy(iso) {

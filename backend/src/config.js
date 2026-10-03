@@ -7,10 +7,91 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const PROJECT_ROOT = path.resolve(__dirname, "../..");
 
 const CONFIG_PATH = path.join(PROJECT_ROOT, "config", "reportes.yaml");
+const FLEET_CONFIG_PATH = path.join(PROJECT_ROOT, "config", "flota.yaml");
+const ZONES_CONFIG_PATH = path.join(PROJECT_ROOT, "config", "zonas.yaml");
 
 export function loadConfig() {
   const raw = fs.readFileSync(CONFIG_PATH, "utf8");
   return yaml.load(raw);
+}
+
+function loadYamlIfExists(filePath, fallbackValue) {
+  try {
+    if (!fs.existsSync(filePath)) return fallbackValue;
+    const raw = fs.readFileSync(filePath, "utf8");
+    return yaml.load(raw) ?? fallbackValue;
+  } catch {
+    return fallbackValue;
+  }
+}
+
+export function loadFleetConfig() {
+  return loadYamlIfExists(FLEET_CONFIG_PATH, {
+    fecha_actualizacion: null,
+    placas: [],
+  });
+}
+
+export function loadZonesConfig() {
+  return loadYamlIfExists(ZONES_CONFIG_PATH, {
+    alertas_ingreso: ["Llegó a la zona"],
+    alertas_salida: ["Salió de zona"],
+    zonas: {
+      bsf: { nombre: "MASS BSF 1", etiqueta: "BSF" },
+      base_os: { nombre: "BASE-OSLOGISTICS", etiqueta: "BASE OS" },
+      tienda: {
+        patron: "^(\\d+)[-\\s]",
+        grupo_codigo: 1,
+        catalogo: "config/tiendas_mass.csv",
+      },
+    },
+  });
+}
+
+function splitCsvLine(line) {
+  const out = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (ch === "," && !inQuotes) {
+      out.push(current);
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  out.push(current);
+  return out.map((value) => String(value ?? "").trim());
+}
+
+export function loadStoresCatalog(csvRelativePath = "config/tiendas_mass.csv") {
+  const csvPath = absPath(csvRelativePath);
+  if (!fs.existsSync(csvPath)) return [];
+  const raw = fs.readFileSync(csvPath, "utf8").replace(/^\uFEFF/, "");
+  const lines = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length <= 1) return [];
+  const headers = splitCsvLine(lines[0]);
+  return lines.slice(1).map((line) => {
+    const values = splitCsvLine(line);
+    const row = {};
+    headers.forEach((header, index) => {
+      row[header] = values[index] ?? "";
+    });
+    return row;
+  });
 }
 
 export function absPath(...parts) {
